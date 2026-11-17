@@ -48,6 +48,12 @@ export const Footer = () => {
                 </Link>
               </li>
               <li>
+                <Link to="/admin" className="text-slate-400 hover:text-indigo-400 transition-colors flex items-center gap-1">
+                  Admin Console
+                  <ArrowUpRight className="w-3 h-3 opacity-60" />
+                </Link>
+              </li>
+              <li>
                 <a href="/#features" className="text-slate-400 hover:text-indigo-400 transition-colors">
                   Scoping Capabilities
                 </a>

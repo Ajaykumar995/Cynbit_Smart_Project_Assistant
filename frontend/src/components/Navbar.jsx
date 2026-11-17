@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRight, Layers, Search, Menu, X, Sparkles } from 'lucide-react';
+import { ArrowRight, Layers, Search, Menu, X, Sparkles, ShieldAlert, LayoutDashboard } from 'lucide-react';
 import Button from './UI/Button';
 import Badge from './UI/Badge';
 
 export const Navbar = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
-
-  const isWizardPage = location.pathname.startsWith('/wizard');
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-850/80 bg-[#090D16]/85 backdrop-blur-md">
@@ -36,7 +34,7 @@ export const Navbar = () => {
         </Link>
 
         {/* Desktop Navigation Links */}
-        <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+        <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-slate-300">
           <Link
             to="/"
             className={`transition-colors hover:text-white ${
@@ -66,6 +64,17 @@ export const Navbar = () => {
             <Search className="w-3.5 h-3.5" />
             <span>Track Inquiry</span>
           </Link>
+          <Link
+            to="/admin"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all ${
+              location.pathname === '/admin'
+                ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 font-semibold'
+                : 'text-slate-400 hover:text-indigo-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Admin</span>
+          </Link>
         </nav>
 
         {/* Action Buttons */}
@@ -89,6 +98,11 @@ export const Navbar = () => {
 
         {/* Mobile Menu Toggle Button */}
         <div className="flex md:hidden items-center gap-2">
+          <Link to="/admin">
+            <Button variant="outline" size="sm" className="px-2">
+              <LayoutDashboard className="w-4 h-4 text-indigo-400" />
+            </Button>
+          </Link>
           <Link to="/wizard">
             <Button variant="primary" size="sm">
               Start
@@ -132,10 +146,18 @@ export const Navbar = () => {
             <Link
               to="/track"
               onClick={() => setMobileMenuOpen(false)}
-              className="px-3 py-2 rounded-md text-sm font-medium text-indigo-400 hover:bg-slate-800 flex items-center gap-2"
+              className="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-800 flex items-center gap-2"
             >
               <Search className="w-4 h-4" />
               <span>Track Existing Inquiry</span>
+            </Link>
+            <Link
+              to="/admin"
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-3 py-2 rounded-md text-sm font-medium text-indigo-300 bg-indigo-950/60 border border-indigo-800/80 flex items-center gap-2"
+            >
+              <LayoutDashboard className="w-4 h-4 text-indigo-400" />
+              <span>Admin Management Console</span>
             </Link>
           </div>
           <div className="pt-2 border-t border-slate-800 flex flex-col gap-2">

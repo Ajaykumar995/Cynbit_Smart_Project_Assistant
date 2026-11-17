@@ -96,13 +96,13 @@ export const getInquiryById = async (req, res, next) => {
 };
 
 /**
- * @desc    Get all inquiries (with optional query filter)
+ * @desc    Get all inquiries (with optional query filter and pagination)
  * @route   GET /api/inquiries
- * @access  Public / Admin prototype
+ * @access  Public / Admin
  */
 export const getAllInquiries = async (req, res, next) => {
   try {
-    const { limit = 25, search } = req.query;
+    const { limit = 50, search, status, projectType } = req.query;
     const filter = {};
 
     if (search) {
@@ -110,8 +110,17 @@ export const getAllInquiries = async (req, res, next) => {
         { referenceId: { $regex: search, $options: 'i' } },
         { 'contact.name': { $regex: search, $options: 'i' } },
         { 'contact.email': { $regex: search, $options: 'i' } },
+        { 'contact.company': { $regex: search, $options: 'i' } },
         { projectType: { $regex: search, $options: 'i' } },
       ];
+    }
+
+    if (status && status !== 'All') {
+      filter.status = status;
+    }
+
+    if (projectType && projectType !== 'All') {
+      filter.projectType = projectType;
     }
 
     const inquiries = await ProjectInquiry.find(filter)
@@ -125,6 +134,128 @@ export const getAllInquiries = async (req, res, next) => {
       count: inquiries.length,
       total: totalCount,
       data: inquiries,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Update inquiry status and internal notes
+ * @route   PATCH /api/inquiries/:id/status
+ * @access  Admin
+ */
+export const updateInquiryStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, clientNotes } = req.body;
+
+    let query = {};
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      query = { $or: [{ _id: id }, { referenceId: id.toUpperCase() }] };
+    } else {
+      query = { referenceId: id.toUpperCase() };
+    }
+
+    const updateFields = {};
+    if (status) updateFields.status = status;
+    if (clientNotes !== undefined) updateFields.clientNotes = clientNotes;
+
+    const updated = await ProjectInquiry.findOneAndUpdate(
+      query,
+      { $set: updateFields },
+      { new: true, runValidators: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: 'Inquiry not found to update',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Inquiry status updated successfully',
+      data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Delete an inquiry
+ * @route   DELETE /api/inquiries/:id
+ * @access  Admin
+ */
+export const deleteInquiry = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    let query = {};
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      query = { $or: [{ _id: id }, { referenceId: id.toUpperCase() }] };
+    } else {
+      query = { referenceId: id.toUpperCase() };
+    }
+
+    const deleted = await ProjectInquiry.findOneAndDelete(query);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Inquiry not found to delete',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Inquiry ${deleted.referenceId} deleted successfully`,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get dashboard metrics & summary statistics
+ * @route   GET /api/inquiries/stats/summary
+ * @access  Admin
+ */
+export const getInquiryStats = async (req, res, next) => {
+  try {
+    const total = await ProjectInquiry.countDocuments();
+    const submitted = await ProjectInquiry.countDocuments({ status: 'Submitted' });
+    const inReview = await ProjectInquiry.countDocuments({ status: 'In Review' });
+    const discovery = await ProjectInquiry.countDocuments({ status: 'Discovery Scheduled' });
+    const proposalReady = await ProjectInquiry.countDocuments({ status: 'Proposal Ready' });
+
+    // Group by project type
+    const byType = await ProjectInquiry.aggregate([
+      { $group: { _id: '$projectType', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    // Group by budget
+    const byBudget = await ProjectInquiry.aggregate([
+      { $group: { _id: '$budget', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total,
+        statusCounts: {
+          submitted,
+          inReview,
+          discovery,
+          proposalReady,
+        },
+        byType,
+        byBudget,
+      },
     });
   } catch (error) {
     next(error);

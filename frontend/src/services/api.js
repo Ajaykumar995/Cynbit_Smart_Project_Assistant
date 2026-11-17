@@ -18,10 +18,8 @@ api.interceptors.response.use(
     let message = 'An unexpected error occurred. Please try again.';
 
     if (error.response) {
-      // Server responded with error status
       message = error.response.data?.message || `Request failed (${error.response.status})`;
     } else if (error.request) {
-      // Request was made but no response received
       message = 'Unable to connect to Cynbit server. Please verify your connection.';
     } else {
       message = error.message;
@@ -42,9 +40,24 @@ export const inquiryService = {
     return await api.get(`/inquiries/${id}`);
   },
 
-  // Get recent inquiries (for tracking/demo view)
+  // Get recent inquiries (with optional search, status, and projectType filters)
   getAll: async (params = {}) => {
     return await api.get('/inquiries', { params });
+  },
+
+  // Update inquiry status or client notes (Admin)
+  updateStatus: async (id, data) => {
+    return await api.patch(`/inquiries/${id}/status`, data);
+  },
+
+  // Delete an inquiry (Admin)
+  delete: async (id) => {
+    return await api.delete(`/inquiries/${id}`);
+  },
+
+  // Get dashboard metrics and summary stats (Admin)
+  getStats: async () => {
+    return await api.get('/inquiries/stats/summary');
   },
 
   // Health check

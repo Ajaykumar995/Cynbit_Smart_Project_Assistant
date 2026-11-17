@@ -7,6 +7,7 @@ import LandingPage from './pages/LandingPage';
 import WizardPage from './pages/WizardPage';
 import SuccessPage from './pages/SuccessPage';
 import TrackInquiryPage from './pages/TrackInquiryPage';
+import AdminPage from './pages/AdminPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 export const App = () => {
@@ -21,6 +22,7 @@ export const App = () => {
               <Route path="/wizard" element={<WizardPage />} />
               <Route path="/success/:id" element={<SuccessPage />} />
               <Route path="/track" element={<TrackInquiryPage />} />
+              <Route path="/admin" element={<AdminPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </main>
