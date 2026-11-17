@@ -1,7 +1,8 @@
 import axios from 'axios';
 
-// Base URL: use environment variable in production, fallback to relative /api for local Vite proxy
-const baseURL = import.meta.env.VITE_API_URL || '/api';
+// Base URL: use environment variable, or fallback to your live Render backend in production, or /api in local development
+const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const baseURL = import.meta.env.VITE_API_URL || (isLocal ? '/api' : 'https://cynbit-smart-project-assistant.onrender.com/api');
 
 const api = axios.create({
   baseURL,
