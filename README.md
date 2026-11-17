@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Cynbit Smart Project Assistant
 
 > **Turn Your Ideas Into Real Products.**  
@@ -273,3 +274,6 @@ Visit **`http://localhost:5173`** in your browser.
 ---
 
 **Cynbit Smart Project Assistant** &mdash; *Engineered for Cynbit Technologies Assessment.*
+=======
+# Cynbit_Smart_Project_Assistant
+>>>>>>> 1713113b96d0f4f5f13c1d98fc85277661b8c96c
