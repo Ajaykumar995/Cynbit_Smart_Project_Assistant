@@ -8,19 +8,28 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 12000,
+  timeout: 15000,
 });
 
-// Response interceptor for consistent error extraction
+// Response interceptor for user-friendly error messages
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     let message = 'An unexpected error occurred. Please try again.';
 
     if (error.response) {
-      message = error.response.data?.message || `Request failed (${error.response.status})`;
+      if (error.response.status === 500) {
+        message =
+          error.response.data?.message ||
+          'Backend service encountered an error or database is connecting. Please verify backend is running on port 5000.';
+      } else if (error.response.status === 404) {
+        message = error.response.data?.message || 'The requested resource was not found.';
+      } else {
+        message = error.response.data?.message || `Request failed with status ${error.response.status}`;
+      }
     } else if (error.request) {
-      message = 'Unable to connect to Cynbit server. Please verify your connection.';
+      message =
+        'Backend server is not reachable on port 5000. Please start the backend server in PowerShell: cd backend; npm.cmd run dev';
     } else {
       message = error.message;
     }
