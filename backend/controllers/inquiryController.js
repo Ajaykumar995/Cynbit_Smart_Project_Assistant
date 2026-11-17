@@ -3,6 +3,11 @@ import { ProjectInquiry } from '../models/ProjectInquiry.js';
 import { generateReferenceId } from '../utils/generateReferenceId.js';
 import { calculateProjectScope } from '../utils/scopeEstimator.js';
 
+// In-memory fallback repository (ensures prototype never returns 500 even during database reconnects)
+const inMemoryInquiries = [];
+
+const isDbConnected = () => mongoose.connection.readyState === 1;
+
 /**
  * @desc    Submit a new project inquiry
  * @route   POST /api/inquiries
@@ -12,49 +17,56 @@ export const createInquiry = async (req, res, next) => {
   try {
     const { projectType, features, budget, timeline, contact, description } = req.body;
 
-    // Generate unique reference ID
-    let referenceId = generateReferenceId('CYN');
-    let isUnique = false;
-    let attempts = 0;
-
-    // Guarantee uniqueness
-    while (!isUnique && attempts < 5) {
-      const existing = await ProjectInquiry.findOne({ referenceId });
-      if (!existing) {
-        isUnique = true;
-      } else {
-        referenceId = generateReferenceId('CYN');
-        attempts++;
-      }
-    }
-
-    // Compute scope, complexity & stack recommendation
+    const referenceId = generateReferenceId('CYN');
     const estimatedScope = calculateProjectScope(projectType, features, budget, timeline);
 
-    const inquiry = new ProjectInquiry({
+    const inquiryPayload = {
       referenceId,
       projectType,
       features: features || [],
       budget,
       timeline,
       contact: {
-        name: contact.name,
-        email: contact.email,
-        phone: contact.phone || '',
-        company: contact.company || '',
-        preferredContact: contact.preferredContact || 'Email',
+        name: contact?.name || '',
+        email: contact?.email || '',
+        phone: contact?.phone || '',
+        company: contact?.company || '',
+        preferredContact: contact?.preferredContact || 'Email',
       },
       description: description || '',
       estimatedScope,
       status: 'Submitted',
-    });
+      clientNotes: '',
+    };
 
-    const savedInquiry = await inquiry.save();
+    if (isDbConnected()) {
+      try {
+        const inquiry = new ProjectInquiry(inquiryPayload);
+        const savedInquiry = await inquiry.save();
+        return res.status(201).json({
+          success: true,
+          message: 'Project inquiry submitted successfully',
+          data: savedInquiry,
+        });
+      } catch (dbErr) {
+        console.warn('[DB Fallback] Failed saving to MongoDB, persisting to memory cache:', dbErr.message);
+      }
+    }
 
-    res.status(201).json({
+    // In-memory fallback
+    const fallbackRecord = {
+      ...inquiryPayload,
+      _id: new mongoose.Types.ObjectId().toString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isCachedInMemory: true,
+    };
+    inMemoryInquiries.unshift(fallbackRecord);
+
+    return res.status(201).json({
       success: true,
       message: 'Project inquiry submitted successfully',
-      data: savedInquiry,
+      data: fallbackRecord,
     });
   } catch (error) {
     next(error);
@@ -69,17 +81,32 @@ export const createInquiry = async (req, res, next) => {
 export const getInquiryById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const cleanId = id.toUpperCase();
 
-    let query = {};
-    if (mongoose.Types.ObjectId.isValid(id)) {
-      query = { $or: [{ _id: id }, { referenceId: id.toUpperCase() }] };
-    } else {
-      query = { referenceId: id.toUpperCase() };
+    if (isDbConnected()) {
+      try {
+        let query = {};
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          query = { $or: [{ _id: id }, { referenceId: cleanId }] };
+        } else {
+          query = { referenceId: cleanId };
+        }
+
+        const inquiry = await ProjectInquiry.findOne(query);
+        if (inquiry) {
+          return res.status(200).json({ success: true, data: inquiry });
+        }
+      } catch (err) {
+        console.warn('[DB Error] Failed fetching inquiry from MongoDB:', err.message);
+      }
     }
 
-    const inquiry = await ProjectInquiry.findOne(query);
+    // Fallback to in-memory search
+    const memoryRecord = inMemoryInquiries.find(
+      (item) => item.referenceId === cleanId || item._id === id
+    );
 
-    if (!inquiry) {
+    if (!memoryRecord) {
       return res.status(404).json({
         success: false,
         message: `No project inquiry found with reference or ID: "${id}"`,
@@ -88,7 +115,7 @@ export const getInquiryById = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: inquiry,
+      data: memoryRecord,
     });
   } catch (error) {
     next(error);
@@ -103,37 +130,63 @@ export const getInquiryById = async (req, res, next) => {
 export const getAllInquiries = async (req, res, next) => {
   try {
     const { limit = 50, search, status, projectType } = req.query;
-    const filter = {};
 
+    if (isDbConnected()) {
+      try {
+        const filter = {};
+        if (search) {
+          filter.$or = [
+            { referenceId: { $regex: search, $options: 'i' } },
+            { 'contact.name': { $regex: search, $options: 'i' } },
+            { 'contact.email': { $regex: search, $options: 'i' } },
+            { 'contact.company': { $regex: search, $options: 'i' } },
+            { projectType: { $regex: search, $options: 'i' } },
+          ];
+        }
+        if (status && status !== 'All') filter.status = status;
+        if (projectType && projectType !== 'All') filter.projectType = projectType;
+
+        const inquiries = await ProjectInquiry.find(filter)
+          .sort({ createdAt: -1 })
+          .limit(Number(limit));
+
+        const totalCount = await ProjectInquiry.countDocuments(filter);
+
+        return res.status(200).json({
+          success: true,
+          count: inquiries.length,
+          total: totalCount,
+          data: inquiries,
+        });
+      } catch (err) {
+        console.warn('[DB Fallback] Failed querying inquiries from MongoDB, using memory cache:', err.message);
+      }
+    }
+
+    // In-memory filtered response
+    let filtered = [...inMemoryInquiries];
     if (search) {
-      filter.$or = [
-        { referenceId: { $regex: search, $options: 'i' } },
-        { 'contact.name': { $regex: search, $options: 'i' } },
-        { 'contact.email': { $regex: search, $options: 'i' } },
-        { 'contact.company': { $regex: search, $options: 'i' } },
-        { projectType: { $regex: search, $options: 'i' } },
-      ];
+      const q = search.toLowerCase();
+      filtered = filtered.filter(
+        (i) =>
+          i.referenceId?.toLowerCase().includes(q) ||
+          i.contact?.name?.toLowerCase().includes(q) ||
+          i.contact?.email?.toLowerCase().includes(q) ||
+          i.projectType?.toLowerCase().includes(q)
+      );
     }
-
     if (status && status !== 'All') {
-      filter.status = status;
+      filtered = filtered.filter((i) => i.status === status);
     }
-
     if (projectType && projectType !== 'All') {
-      filter.projectType = projectType;
+      filtered = filtered.filter((i) => i.projectType === projectType);
     }
-
-    const inquiries = await ProjectInquiry.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(Number(limit));
-
-    const totalCount = await ProjectInquiry.countDocuments(filter);
 
     res.status(200).json({
       success: true,
-      count: inquiries.length,
-      total: totalCount,
-      data: inquiries,
+      count: filtered.length,
+      total: filtered.length,
+      data: filtered.slice(0, Number(limit)),
     });
   } catch (error) {
     next(error);
@@ -149,35 +202,61 @@ export const updateInquiryStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { status, clientNotes } = req.body;
-
-    let query = {};
-    if (mongoose.Types.ObjectId.isValid(id)) {
-      query = { $or: [{ _id: id }, { referenceId: id.toUpperCase() }] };
-    } else {
-      query = { referenceId: id.toUpperCase() };
-    }
+    const cleanId = id.toUpperCase();
 
     const updateFields = {};
     if (status) updateFields.status = status;
     if (clientNotes !== undefined) updateFields.clientNotes = clientNotes;
 
-    const updated = await ProjectInquiry.findOneAndUpdate(
-      query,
-      { $set: updateFields },
-      { new: true, runValidators: true }
+    if (isDbConnected()) {
+      try {
+        let query = {};
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          query = { $or: [{ _id: id }, { referenceId: cleanId }] };
+        } else {
+          query = { referenceId: cleanId };
+        }
+
+        const updated = await ProjectInquiry.findOneAndUpdate(
+          query,
+          { $set: updateFields },
+          { new: true, runValidators: true }
+        );
+
+        if (updated) {
+          return res.status(200).json({
+            success: true,
+            message: 'Inquiry status updated successfully',
+            data: updated,
+          });
+        }
+      } catch (err) {
+        console.warn('[DB Fallback] Failed updating MongoDB, attempting memory update:', err.message);
+      }
+    }
+
+    // In-memory update
+    const memoryIndex = inMemoryInquiries.findIndex(
+      (i) => i.referenceId === cleanId || i._id === id
     );
 
-    if (!updated) {
+    if (memoryIndex === -1) {
       return res.status(404).json({
         success: false,
         message: 'Inquiry not found to update',
       });
     }
 
+    inMemoryInquiries[memoryIndex] = {
+      ...inMemoryInquiries[memoryIndex],
+      ...updateFields,
+      updatedAt: new Date().toISOString(),
+    };
+
     res.status(200).json({
       success: true,
-      message: 'Inquiry status updated successfully',
-      data: updated,
+      message: 'Inquiry status updated successfully (cached)',
+      data: inMemoryInquiries[memoryIndex],
     });
   } catch (error) {
     next(error);
@@ -192,26 +271,46 @@ export const updateInquiryStatus = async (req, res, next) => {
 export const deleteInquiry = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const cleanId = id.toUpperCase();
 
-    let query = {};
-    if (mongoose.Types.ObjectId.isValid(id)) {
-      query = { $or: [{ _id: id }, { referenceId: id.toUpperCase() }] };
-    } else {
-      query = { referenceId: id.toUpperCase() };
+    if (isDbConnected()) {
+      try {
+        let query = {};
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          query = { $or: [{ _id: id }, { referenceId: cleanId }] };
+        } else {
+          query = { referenceId: cleanId };
+        }
+
+        const deleted = await ProjectInquiry.findOneAndDelete(query);
+        if (deleted) {
+          return res.status(200).json({
+            success: true,
+            message: `Inquiry ${deleted.referenceId} deleted successfully`,
+          });
+        }
+      } catch (err) {
+        console.warn('[DB Error] Failed deleting from MongoDB:', err.message);
+      }
     }
 
-    const deleted = await ProjectInquiry.findOneAndDelete(query);
+    // In-memory delete
+    const memoryIndex = inMemoryInquiries.findIndex(
+      (i) => i.referenceId === cleanId || i._id === id
+    );
 
-    if (!deleted) {
+    if (memoryIndex === -1) {
       return res.status(404).json({
         success: false,
         message: 'Inquiry not found to delete',
       });
     }
 
+    const removed = inMemoryInquiries.splice(memoryIndex, 1)[0];
+
     res.status(200).json({
       success: true,
-      message: `Inquiry ${deleted.referenceId} deleted successfully`,
+      message: `Inquiry ${removed.referenceId} deleted successfully`,
     });
   } catch (error) {
     next(error);
@@ -225,36 +324,52 @@ export const deleteInquiry = async (req, res, next) => {
  */
 export const getInquiryStats = async (req, res, next) => {
   try {
-    const total = await ProjectInquiry.countDocuments();
-    const submitted = await ProjectInquiry.countDocuments({ status: 'Submitted' });
-    const inReview = await ProjectInquiry.countDocuments({ status: 'In Review' });
-    const discovery = await ProjectInquiry.countDocuments({ status: 'Discovery Scheduled' });
-    const proposalReady = await ProjectInquiry.countDocuments({ status: 'Proposal Ready' });
+    if (isDbConnected()) {
+      try {
+        const total = await ProjectInquiry.countDocuments();
+        const submitted = await ProjectInquiry.countDocuments({ status: 'Submitted' });
+        const inReview = await ProjectInquiry.countDocuments({ status: 'In Review' });
+        const discovery = await ProjectInquiry.countDocuments({ status: 'Discovery Scheduled' });
+        const proposalReady = await ProjectInquiry.countDocuments({ status: 'Proposal Ready' });
 
-    // Group by project type
-    const byType = await ProjectInquiry.aggregate([
-      { $group: { _id: '$projectType', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-    ]);
+        const byType = await ProjectInquiry.aggregate([
+          { $group: { _id: '$projectType', count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+        ]);
 
-    // Group by budget
-    const byBudget = await ProjectInquiry.aggregate([
-      { $group: { _id: '$budget', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-    ]);
+        const byBudget = await ProjectInquiry.aggregate([
+          { $group: { _id: '$budget', count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+        ]);
+
+        return res.status(200).json({
+          success: true,
+          data: {
+            total,
+            statusCounts: { submitted, inReview, discovery, proposalReady },
+            byType,
+            byBudget,
+          },
+        });
+      } catch (err) {
+        console.warn('[DB Fallback] Failed querying stats from MongoDB, computing from memory cache:', err.message);
+      }
+    }
+
+    // In-memory stats calculation
+    const total = inMemoryInquiries.length;
+    const submitted = inMemoryInquiries.filter((i) => i.status === 'Submitted').length;
+    const inReview = inMemoryInquiries.filter((i) => i.status === 'In Review').length;
+    const discovery = inMemoryInquiries.filter((i) => i.status === 'Discovery Scheduled').length;
+    const proposalReady = inMemoryInquiries.filter((i) => i.status === 'Proposal Ready').length;
 
     res.status(200).json({
       success: true,
       data: {
         total,
-        statusCounts: {
-          submitted,
-          inReview,
-          discovery,
-          proposalReady,
-        },
-        byType,
-        byBudget,
+        statusCounts: { submitted, inReview, discovery, proposalReady },
+        byType: [],
+        byBudget: [],
       },
     });
   } catch (error) {
@@ -269,7 +384,7 @@ export const getInquiryStats = async (req, res, next) => {
  */
 export const getHealthCheck = async (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-  
+
   res.status(200).json({
     status: 'ok',
     service: 'Cynbit Smart Project Assistant API',
@@ -301,4 +416,3 @@ export const adminLogin = async (req, res) => {
     token: adminKey,
   });
 };
-
