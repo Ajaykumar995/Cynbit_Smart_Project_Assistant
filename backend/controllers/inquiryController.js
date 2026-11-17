@@ -278,3 +278,27 @@ export const getHealthCheck = async (req, res) => {
     uptime: `${Math.floor(process.uptime())} seconds`,
   });
 };
+
+/**
+ * @desc    Admin login verification
+ * @route   POST /api/inquiries/admin/login
+ * @access  Public
+ */
+export const adminLogin = async (req, res) => {
+  const { password } = req.body;
+  const adminKey = process.env.ADMIN_KEY || 'cynbit2026';
+
+  if (!password || password !== adminKey) {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid administrator passcode. Access denied.',
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Admin authentication verified',
+    token: adminKey,
+  });
+};
+

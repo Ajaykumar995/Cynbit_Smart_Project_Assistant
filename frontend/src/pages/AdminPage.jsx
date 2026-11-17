@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
+  Lock,
+  Unlock,
   ShieldAlert,
   Search,
   Filter,
   RefreshCw,
   Eye,
+  EyeOff,
   Trash2,
   CheckCircle2,
   Clock,
@@ -21,6 +25,9 @@ import {
   BarChart3,
   ExternalLink,
   ChevronDown,
+  LogOut,
+  KeyRound,
+  ArrowLeft,
 } from 'lucide-react';
 import { inquiryService } from '../services/api';
 import Card from '../components/UI/Card';
@@ -28,9 +35,23 @@ import Badge from '../components/UI/Badge';
 import Button from '../components/UI/Button';
 
 export const AdminPage = () => {
+  // Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return Boolean(
+      sessionStorage.getItem('cynbit_admin_key') || localStorage.getItem('cynbit_admin_key')
+    );
+  });
+
+  const [passwordInput, setPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+  const [authError, setAuthError] = useState(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  // Admin Data State
   const [inquiries, setInquiries] = useState([]);
   const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // Filters
@@ -53,7 +74,47 @@ export const AdminPage = () => {
     setTimeout(() => setActionSuccess(null), 3000);
   };
 
+  // Handle Login Submission
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!passwordInput.trim()) {
+      setAuthError('Please enter the administrator passcode.');
+      return;
+    }
+
+    setIsVerifying(true);
+    setAuthError(null);
+
+    try {
+      const res = await inquiryService.adminLogin(passwordInput.trim());
+      if (res.success && res.token) {
+        if (rememberMe) {
+          localStorage.setItem('cynbit_admin_key', res.token);
+        }
+        sessionStorage.setItem('cynbit_admin_key', res.token);
+        setIsAuthenticated(true);
+        setPasswordInput('');
+      } else {
+        setAuthError(res.message || 'Invalid passcode.');
+      }
+    } catch (err) {
+      setAuthError(err.message || 'Access Denied: Invalid administrator passcode.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('cynbit_admin_key');
+    localStorage.removeItem('cynbit_admin_key');
+    setIsAuthenticated(false);
+    setInquiries([]);
+    setStats(null);
+    setSelectedInquiry(null);
+  };
+
   const loadData = async () => {
+    if (!isAuthenticated) return;
     setLoading(true);
     setError(null);
     try {
@@ -75,15 +136,22 @@ export const AdminPage = () => {
       }
     } catch (err) {
       console.error('Failed to load admin data:', err);
-      setError(err.message || 'Unable to connect to backend.');
+      if (err.message?.includes('Access Denied') || err.message?.includes('Unauthorized')) {
+        handleLogout();
+        setAuthError('Session expired or unauthorized. Please re-authenticate.');
+      } else {
+        setError(err.message || 'Unable to connect to backend.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, [statusFilter, typeFilter]);
+    if (isAuthenticated) {
+      loadData();
+    }
+  }, [isAuthenticated, statusFilter, typeFilter]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -102,7 +170,6 @@ export const AdminPage = () => {
           setSelectedInquiry(res.data);
         }
         showNotification(`Status updated to "${newStatus}"`);
-        // Refresh summary stats
         inquiryService.getStats().then((s) => s.success && setStats(s.data));
       }
     } catch (err) {
@@ -184,13 +251,118 @@ export const AdminPage = () => {
     document.body.removeChild(link);
   };
 
+  // -------------------------------------------------------------
+  // RENDER: PASSWORD PROTECTION GATE
+  // -------------------------------------------------------------
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-[75vh] flex items-center justify-center px-4 py-16">
+        <div className="w-full max-w-md space-y-6">
+          {/* Brand Header */}
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-950/80 border border-indigo-500/40 text-indigo-400 mx-auto flex items-center justify-center shadow-glow">
+              <Lock className="w-7 h-7" />
+            </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-indigo-400 text-xs font-mono">
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>RESTRICTED ACCESS</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Admin Authentication
+            </h1>
+            <p className="text-slate-400 text-xs sm:text-sm">
+              Enter the administrator security passkey to access client briefs and pipeline controls.
+            </p>
+          </div>
+
+          {/* Login Card */}
+          <Card className="p-6 sm:p-8 space-y-5 shadow-2xl border-indigo-500/30">
+            {authError && (
+              <div className="p-3.5 rounded-lg bg-red-950/70 border border-red-800 text-red-200 text-xs flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Administrator Passkey
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="Enter admin password..."
+                    className="w-full bg-[#0F172A] border border-slate-800 rounded-lg pl-3.5 pr-10 py-2.5 text-sm text-white placeholder-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span>Remember this browser session</span>
+                </label>
+              </div>
+
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                isLoading={isVerifying}
+                leftIcon={Unlock}
+                className="w-full shadow-glow"
+              >
+                Unlock Admin Console
+              </Button>
+            </form>
+
+            {/* Assessment / Recruiter Helper Note */}
+            <div className="pt-4 border-t border-slate-800/80 text-[11px] text-slate-400 space-y-1 text-center bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+              <span className="font-semibold text-slate-300 block">Intern Assessment Evaluation:</span>
+              <span>Default Prototype Passkey: <code className="text-indigo-300 font-mono font-bold bg-slate-950 px-1.5 py-0.5 rounded">cynbit2026</code></span>
+            </div>
+          </Card>
+
+          <div className="text-center">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Return to Public Portal</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // RENDER: AUTHENTICATED ADMIN DASHBOARD
+  // -------------------------------------------------------------
   return (
-    <div className="py-8 sm:py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-8">
+    <div className="py-8 sm:py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-8 animate-fadeIn">
       {/* Top Admin Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Badge variant="indigo" size="sm" dot>Internal Portal</Badge>
+            <Badge variant="indigo" size="sm" dot>Authenticated Session</Badge>
             <span className="text-xs font-mono text-slate-400">CYNBIT LEAD MANAGEMENT</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
@@ -219,6 +391,15 @@ export const AdminPage = () => {
             disabled={inquiries.length === 0}
           >
             Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleLogout}
+            leftIcon={LogOut}
+            className="text-red-400 hover:text-red-300 border-red-900/50 hover:bg-red-950/40"
+          >
+            Lock / Logout
           </Button>
         </div>
       </div>

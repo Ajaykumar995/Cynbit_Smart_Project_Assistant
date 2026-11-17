@@ -11,6 +11,15 @@ const api = axios.create({
   timeout: 15000,
 });
 
+// Request interceptor: attach admin passcode if authenticated
+api.interceptors.request.use((config) => {
+  const adminKey = sessionStorage.getItem('cynbit_admin_key') || localStorage.getItem('cynbit_admin_key');
+  if (adminKey) {
+    config.headers['x-admin-key'] = adminKey;
+  }
+  return config;
+});
+
 // Response interceptor for user-friendly error messages
 api.interceptors.response.use(
   (response) => response.data,
@@ -18,7 +27,9 @@ api.interceptors.response.use(
     let message = 'An unexpected error occurred. Please try again.';
 
     if (error.response) {
-      if (error.response.status === 500) {
+      if (error.response.status === 401) {
+        message = error.response.data?.message || 'Unauthorized: Invalid admin credentials.';
+      } else if (error.response.status === 500) {
         message =
           error.response.data?.message ||
           'Backend service encountered an error or database is connecting. Please verify backend is running on port 5000.';
@@ -52,6 +63,11 @@ export const inquiryService = {
   // Get recent inquiries (with optional search, status, and projectType filters)
   getAll: async (params = {}) => {
     return await api.get('/inquiries', { params });
+  },
+
+  // Admin login check
+  adminLogin: async (password) => {
+    return await api.post('/inquiries/admin/login', { password });
   },
 
   // Update inquiry status or client notes (Admin)

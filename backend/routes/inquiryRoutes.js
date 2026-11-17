@@ -6,13 +6,18 @@ import {
   updateInquiryStatus,
   deleteInquiry,
   getInquiryStats,
+  adminLogin,
 } from '../controllers/inquiryController.js';
 import { validateInquiry } from '../middleware/validateInquiry.js';
+import { requireAdminAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Admin summary statistics (placed before /:id)
-router.get('/stats/summary', getInquiryStats);
+// Admin Authentication Login
+router.post('/admin/login', adminLogin);
+
+// Admin summary statistics (protected)
+router.get('/stats/summary', requireAdminAuth, getInquiryStats);
 
 // Main inquiry endpoints
 router.route('/')
@@ -22,9 +27,9 @@ router.route('/')
 // Individual inquiry endpoints
 router.route('/:id')
   .get(getInquiryById)
-  .delete(deleteInquiry);
+  .delete(requireAdminAuth, deleteInquiry);
 
-// Status and notes update
-router.patch('/:id/status', updateInquiryStatus);
+// Status and notes update (protected)
+router.patch('/:id/status', requireAdminAuth, updateInquiryStatus);
 
 export default router;
