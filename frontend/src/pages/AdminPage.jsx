@@ -35,18 +35,20 @@ import Badge from '../components/UI/Badge';
 import Button from '../components/UI/Button';
 
 export const AdminPage = () => {
-  // Authentication State
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return Boolean(
-      sessionStorage.getItem('cynbit_admin_key') || localStorage.getItem('cynbit_admin_key')
-    );
-  });
+  // Authentication State — always require fresh login on page load
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
+  const [rememberMe, setRememberMe] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
+
+  // Clear any previously stored admin credentials on page load
+  useEffect(() => {
+    sessionStorage.removeItem('cynbit_admin_key');
+    localStorage.removeItem('cynbit_admin_key');
+  }, []);
 
   // Admin Data State
   const [inquiries, setInquiries] = useState([]);
