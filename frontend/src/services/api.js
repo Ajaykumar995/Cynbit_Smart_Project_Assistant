@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Base URL: use environment variable in production, fallback to relative /api for Vite proxy
+// Base URL: use environment variable in production, fallback to relative /api for local Vite proxy
 const baseURL = import.meta.env.VITE_API_URL || '/api';
 
 const api = axios.create({
@@ -8,7 +8,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000,
+  // 45s timeout to comfortably accommodate Render free tier cold-starts
+  timeout: 45000,
 });
 
 // Request interceptor: attach admin passcode if authenticated
@@ -26,21 +27,40 @@ api.interceptors.response.use(
   (error) => {
     let message = 'An unexpected error occurred. Please try again.';
 
+    const isProduction =
+      typeof window !== 'undefined' &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1';
+
     if (error.response) {
       if (error.response.status === 401) {
         message = error.response.data?.message || 'Unauthorized: Invalid admin credentials.';
       } else if (error.response.status === 500) {
         message =
           error.response.data?.message ||
-          'Backend service encountered an error or database is connecting. Please verify backend is running on port 5000.';
+          'Backend service encountered an error or database is connecting. Please check your Render logs.';
       } else if (error.response.status === 404) {
-        message = error.response.data?.message || 'The requested resource was not found.';
+        message =
+          error.response.data?.message ||
+          (isProduction && !import.meta.env.VITE_API_URL
+            ? 'Backend API not found. Please set VITE_API_URL in Netlify Environment Variables and re-deploy.'
+            : 'The requested resource was not found.');
       } else {
         message = error.response.data?.message || `Request failed with status ${error.response.status}`;
       }
     } else if (error.request) {
-      message =
-        'Backend server is not reachable on port 5000. Please start the backend server in PowerShell: cd backend; npm.cmd run dev';
+      if (isProduction) {
+        if (!import.meta.env.VITE_API_URL) {
+          message =
+            'Backend URL not configured on Netlify. Please add VITE_API_URL in Netlify Site Settings → Environment variables (pointing to your Render URL + /api) and Trigger Deploy → Clear cache and deploy.';
+        } else {
+          message =
+            'Unable to reach backend on Render. If the service was sleeping (Render free tier), it may take ~30 seconds to wake up. Please wait a moment and try again.';
+        }
+      } else {
+        message =
+          'Backend server is not reachable on port 5000. Please start the backend server in PowerShell: cd backend; npm.cmd run dev';
+      }
     } else {
       message = error.message;
     }
